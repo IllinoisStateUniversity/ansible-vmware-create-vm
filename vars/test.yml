@@ -1,0 +1,14 @@
+---
+vcenter_hostname: vcenter-test.example.com
+vcenter_username: VSPHERE.LOCAL\username
+vcenter_password:
+vcenter_cluster: Cluster1
+vcenter_datacenter: DataCenter1
+vcenter_resourcepool: "{{ (survey_environment == 'test') | ternary('Test Resource Pool', 'Dev Resource Pool') }}"
+vcenter_folder: "/DataCenter1/vm/{{ survey_resourceowner }}"
+vcenter_disk_datastore: vsanDatastore
+vcenter_vlan: "vlan{{ survey_vlan_number }}"
+vcenter_dvswitch_name: DVSwitch1
+
+# Template Name to Guest ID Pairing
+vcenter_guest_id: "{{ {'RHEL 9': 'rhel9_64Guest', 'RHEL 8': 'rhel8_64Guest', 'Windows Server 2016': 'windows9Server64Guest', 'Windows Server 2019': 'windows9Server64Guest', 'Windows Server 2022': 'windows9Server64Guest'}[survey_os] }}"

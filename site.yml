@@ -1,0 +1,117 @@
+---
+- name: VMware - Create VM
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - "vars/{{ vcenter_environment }}.yml"
+
+  ## Survey Vars from Workflow Job Template
+  # survey_hostname
+  # survey_resourceowner
+  # survey_environment
+  # survey_disk_sizegb
+  # survey_memory_gb
+  # survey_cpu
+  # survey_vlan_number
+  # survey_ip - if vm_is_dhcp='false'
+  # survey_subnetmask - if vm_is_dhcp='false'
+  # survey_defaultgateway - if vm_is_dhcp='false'
+  # survey_patchday
+  # survey_patchtime
+  # survey_backup
+
+  ## Extra Vars
+  # vcenter_environment = test/prod/oldprod
+  # vm_is_dhcp = 'true'/'false' as string
+
+  tasks:
+    - name: Create VM
+      community.vmware.vmware_guest:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        datacenter: "{{ vcenter_datacenter }}"
+        cluster: "{{ vcenter_cluster }}"
+        resource_pool: "{{ vcenter_resourcepool }}"
+        guest_id: "{{ vcenter_guest_id }}"
+        folder: "{{ vcenter_folder }}"
+        name: "{{ survey_hostname }}"
+        state: powered-on
+        disk:
+          - size_gb: "{{ survey_disk_sizegb }}"
+            type: thin
+            datastore: "{{ vcenter_disk_datastore }}"
+        hardware:
+          memory_mb: "{{ (survey_memory_gb | int) * 1024 }}"
+          num_cpus: "{{ survey_cpu | int }}"
+          hotadd_cpu: true
+          hotadd_memory: true
+          num_cpu_cores_per_socket: 1
+        networks:
+          - name: "{{ vcenter_vlan }}"
+            dvswitch_name: "{{ vcenter_dvswitch_name }}"
+            ip: "{{ (vm_is_dhcp == 'true') | ternary(omit, survey_ip) }}"
+            netmask: "{{ (vm_is_dhcp == 'true') | ternary(omit, survey_subnetmask) }}"
+            gateway: "{{ (vm_is_dhcp == 'true') | ternary(omit, survey_defaultgateway) }}"
+            connected: true
+            type: "{{ (vm_is_dhcp == 'true') | ternary('dhcp', 'static') }}"
+        customization_spec: "{{ {'RHEL 9': omit, 'RHEL 8': omit, 'Windows Server 2016': 'Windows', 'Windows Server 2019': 'Windows', 'Windows Server 2022': 'Windows'}[survey_os] }}"
+        template: "{{ {'RHEL 9': 'RHEL 9', 'RHEL 8': 'RHEL 8', 'Windows Server 2016': 'Windows Server 2016', 'Windows Server 2019': 'Windows Server 2019', 'Windows Server 2022': 'Windows Server 2022'}[survey_os] }}"
+        wait_for_customization: "{{ {'RHEL 9': omit, 'RHEL 8': omit, 'Windows Server 2016': true, 'Windows Server 2019': true, 'Windows Server 2022': true}[survey_os] }}"
+        wait_for_ip_address: true
+      register: vm_result
+
+    - name: Save VM Info for Workflow Use
+      ansible.builtin.set_stats:
+        data:
+          survey_a_record_name: "{{ survey_hostname }}"
+          survey_a_record_link: "{{ vm_result.instance.ipv4 }}"
+          survey_server_mac: "{{ vm_result.instance.hw_eth0.macaddress }}"
+
+    - name: Add Tags
+      community.vmware.vmware_tag_manager:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        object_type: VirtualMachine
+        object_name: "{{ vm_result.instance.hw_name }}"
+        tag_names:
+          - "os-family:{{ {'RHEL 9': 'redhat', 'RHEL 8': 'redhat', 'Windows Server 2016': 'windows', 'Windows Server 2019': 'windows', 'Windows Server 2022': 'windows'}[survey_os] }}"
+          - "os:{{ {'RHEL 9': 'redhat-9', 'RHEL 8': 'redhat-8', 'Windows Server 2016': 'windows-server-2016', 'Windows Server 2019': 'windows-server-2019', 'Windows Server 2022': 'windows-server-2022'}[survey_os] }}"
+          - "patch-day:{{ survey_patchday }}"
+          - "resource-type:server"
+          - "environment:{{ survey_environment }}"
+          - "dr-tier:needs-assignment"
+          - "resource-owner:{{ survey_resourceowner }}"
+          - "backup-type:{{ survey_backup }}"
+          - "application:{{ survey_application }}"
+        state: present
+
+    - name: Add Tag - backup-retention-days
+      community.vmware.vmware_tag_manager:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        object_type: VirtualMachine
+        object_name: "{{ vm_result.instance.hw_name }}"
+        tag_names:
+          - "backup-retention-days:60"
+        state: present
+      when: survey_backup == 'commvault'
+
+    - name: Add Tag - patch-time
+      community.vmware.vmware_tag_manager:
+        hostname: "{{ vcenter_hostname }}"
+        username: "{{ vcenter_username }}"
+        password: "{{ vcenter_password }}"
+        validate_certs: false
+        object_type: VirtualMachine
+        object_name: "{{ vm_result.instance.hw_name }}"
+        tag_names:
+          - "patch-time:{{ survey_patchtime }}"
+        state: present
+      when: survey_patchday != 'none'
