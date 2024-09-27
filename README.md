@@ -1,4 +1,4 @@
-# Ansible Playbook: VMware - Create VM
+# VMware - Create VM
 
 This playbook automates the process of creating virtual machines (VMs) in VMware environments using Ansible Automation Platform. It supports various configurations and environments by utilizing variables from both user inputs and predefined files.
 
